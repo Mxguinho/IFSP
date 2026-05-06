@@ -9,6 +9,19 @@
 #else
     #include <unistd.h>    // Para sleep/usleep no Linux/macOS
 #endif
+
+// Função de delay em milissegundos
+void delay_ms(unsigned int milliseconds) {
+    if (milliseconds == 0) return; // Evita chamadas desnecessárias
+
+#ifdef _WIN32
+    Sleep(milliseconds); // Windows: milissegundos
+#else
+    // Linux/macOS: usleep usa microssegundos
+    usleep(milliseconds * 1000);
+#endif
+}
+
 int main() {
     int ate25 = 0, de26_50 = 0, de51_75 = 0, de76_100 = 0, quant, tam, num;
     
@@ -34,14 +47,3 @@ int main() {
     return 0;
 }
 
-// Função de delay em milissegundos
-void delay_ms(unsigned int milliseconds) {
-    if (milliseconds == 0) return; // Evita chamadas desnecessárias
-
-#ifdef _WIN32
-    Sleep(milliseconds); // Windows: milissegundos
-#else
-    // Linux/macOS: usleep usa microssegundos
-    usleep(milliseconds * 1000);
-#endif
-}
