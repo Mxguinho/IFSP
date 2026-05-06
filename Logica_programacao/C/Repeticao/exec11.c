@@ -46,4 +46,3 @@ int main() {
     printf("Total: %d\n", (tam - 1));
     return 0;
 }
-
