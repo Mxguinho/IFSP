@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seminário: Segurança em Barramentos e DMA Attacks</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome para Ícones -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@400;600;800&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* slate-900 */
+            color: #f8fafc;
+            overflow-x: hidden;
+        }
+
+        .font-mono {
+            font-family: 'Fira Code', monospace;
+        }
+
+        /* Animações Globais */
+        .fade-in {
+            animation: fadeIn 0.4s ease-in-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Exp 1: SVG Path Animations */
+        .path-line {
+            stroke-dasharray: 100;
+            stroke-dashoffset: 100;
+            transition: stroke-dashoffset 0.1s linear;
+        }
+        
+        .animating-path {
+            animation: dash 2s linear infinite;
+        }
+
+        @keyframes dash {
+            to { stroke-dashoffset: 0; }
+        }
+
+        /* Simulador de Lentidão Exp 1 */
+        .simulated-lag * {
+            transition: all 0.5s step-end !important;
+            cursor: wait !important;
+        }
+
+        /* Exp 2: Caça-Tesouro */
+        .memory-cell {
+            transition: all 0.2s;
+            transform-style: preserve-3d;
+        }
+        .memory-cell:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+        }
+        .cell-revealed {
+            background-color: #1e293b;
+            border-color: #475569;
+            transform: scale(0.95);
+        }
+        
+        /* Exp 3: Drag and Drop */
+        .draggable {
+            cursor: grab;
+        }
+        .draggable:active {
+            cursor: grabbing;
+        }
+        .dropzone {
+            transition: all 0.2s ease;
+        }
+        .dropzone.drag-over {
+            background-color: rgba(34, 197, 94, 0.2);
+            border-color: #22c55e;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col md:flex-row">
+
+    <nav class="bg-slate-900 border-b md:border-b-0 md:border-r border-slate-700 w-full md:w-64 flex-shrink-0 z-10 shadow-xl">
+        <div class="p-6">
+            <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
+                <i class="fa-solid fa-microchip text-blue-500 mr-2"></i>DMA Sec
+            </h1>
+            <p class="text-xs text-slate-400 mt-2">Seminário: Segurança em Barramentos</p>
+        </div>
+        <ul class="flex flex-row md:flex-col overflow-x-auto md:overflow-visible p-4 gap-2">
+            <li>
+                <button onclick="navigate('intro')" id="nav-intro" class="nav-btn w-full text-left px-4 py-3 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30 transition-colors whitespace-nowrap md:whitespace-normal">
+                    <i class="fa-solid fa-house mr-2 w-5"></i> Introdução
+                </button>
+            </li>
+            <li>
+                <button onclick="navigate('exp1')" id="nav-exp1" class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-300 transition-colors whitespace-nowrap md:whitespace-normal">
+                    <i class="fa-solid fa-gauge-high mr-2 w-5"></i> 1. CPU vs DMA
+                </button>
+            </li>
+            <li>
+                <button onclick="navigate('exp2')" id="nav-exp2" class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-300 transition-colors whitespace-nowrap md:whitespace-normal">
+                    <i class="fa-solid fa-magnifying-glass-chart mr-2 w-5"></i> 2. Caça-Tesouro
+                </button>
+            </li>
+            <li>
+                <button onclick="navigate('exp3')" id="nav-exp3" class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-300 transition-colors whitespace-nowrap md:whitespace-normal">
+                    <i class="fa-solid fa-shield-halved mr-2 w-5"></i> 3. Porteiro IOMMU
+                </button>
+            </li>
+            <li>
+                <button onclick="navigate('exp4')" id="nav-exp4" class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-300 transition-colors whitespace-nowrap md:whitespace-normal">
+                    <i class="fa-solid fa-user-secret mr-2 w-5"></i> 4. Evil Maid
+                </button>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 p-6 md:p-12 relative overflow-y-auto bg-slate-800/50">
+
+        <!-- Modal Global para Alertas -->
+        <div id="alert-modal" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center backdrop-blur-sm transition-opacity">
+            <div class="bg-slate-800 border border-slate-600 p-8 rounded-2xl max-w-md w-full text-center shadow-2xl relative">
+                <div id="alert-icon" class="text-6xl mb-4"></div>
+                <h3 id="alert-title" class="text-2xl font-bold mb-2"></h3>
+                <p id="alert-message" class="text-slate-300 mb-6"></p>
+                <button onclick="closeAlert()" class="px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-semibold transition-colors">Entendi</button>
+            </div>
+        </div>
+
+        <!-- INTRO -->
+        <section id="view-intro" class="view-section fade-in max-w-4xl mx-auto">
+            <h2 class="text-4xl font-bold mb-6">Entendendo o DMA (Direct Memory Access)</h2>
+            <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg mb-8">
+                <p class="text-lg leading-relaxed text-slate-300 mb-4">
+                    Tradicionalmente, a CPU é a mediadora de todas as transferências de dados no computador. Se você precisa ler um arquivo do disco para a RAM, a CPU precisa copiar byte por byte. Isso desperdiça poder de processamento precioso.
+                </p>
+                <p class="text-lg leading-relaxed text-slate-300 mb-4">
+                    Para resolver isso, criaram o <strong class="text-emerald-400">DMA (Acesso Direto à Memória)</strong>. Um subsistema que permite que periféricos (Placas de vídeo, Rede, Discos, e portas Thunderbolt/USB4) conversem diretamente com a Memória RAM, contornando completamente a CPU.
+                </p>
+                <div class="flex items-center gap-4 mt-6 p-4 bg-rose-900/20 border border-rose-500/30 rounded-lg">
+                    <i class="fa-solid fa-triangle-exclamation text-3xl text-rose-500"></i>
+                    <p class="text-rose-200">
+                        <strong>O Problema de Segurança:</strong> Se um dispositivo tem acesso direto e irrestrito à RAM, o que impede um dispositivo malicioso (como um pendrive Thunderbolt) de ler suas senhas, chaves de criptografia ou injetar código direto na memória do Sistema Operacional?
+                    </p>
+                </div>
+            </div>
+            <p class="text-center text-slate-400 animate-pulse mt-10">Use o menu lateral para explorar os experimentos interativos.</p>
+        </section>
+
+        <!-- EXPERIMENTO 1: VELOCÍMETRO -->
+        <section id="view-exp1" class="view-section hidden fade-in max-w-5xl mx-auto">
+            <div class="mb-8">
+                <h2 class="text-3xl font-bold flex items-center gap-3">
+                    <i class="fa-solid fa-gauge-high text-blue-400"></i> O Velocímetro: CPU vs. DMA
+                </h2>
+                <p class="text-slate-400 mt-2">Veja por que o DMA foi inventado e qual a diferença no uso dos recursos.</p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+                <!-- Controle -->
+                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg flex flex-col justify-center gap-4">
+                    <h3 class="text-xl font-semibold text-center mb-2">Controles de Transferência</h3>
+                    <button id="btn-cpu" class="w-full py-4 px-6 rounded-lg font-bold text-white bg-rose-600 hover:bg-rose-500 shadow-[0_0_15px_rgba(225,29,72,0.4)] transition-all">
+                        <i class="fa-solid fa-microchip mr-2"></i> Transferir via CPU
+                    </button>
+                    <button id="btn-dma" class="w-full py-4 px-6 rounded-lg font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-[0_0_15px_rgba(5,150,105,0.4)] transition-all">
+                        <i class="fa-solid fa-bolt mr-2"></i> Transferir via DMA
+                    </button>
+                    <button id="btn-reset1" class="w-full py-2 px-6 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-slate-700 transition-all mt-4 border border-slate-600">
+                        <i class="fa-solid fa-rotate-right mr-2"></i> Resetar
+                    </button>
+                </div>
+
+                <!-- Simulação Visual -->
+                <div class="lg:col-span-2 bg-slate-900 border border-slate-700 p-8 rounded-xl relative flex items-center justify-center min-h-[350px]">
+                    
+                    <!-- Nodes -->
+                    <div class="flex justify-between w-full max-w-2xl relative z-10">
+                        
+                        <!-- Disco -->
+                        <div class="flex flex-col items-center gap-2">
+                            <div class="w-20 h-20 bg-slate-800 border-2 border-slate-500 rounded-lg flex items-center justify-center shadow-lg">
+                                <i class="fa-solid fa-hard-drive text-4xl text-slate-300"></i>
+                            </div>
+                            <span class="font-semibold text-slate-300">Disco NVMe</span>
+                            <div id="disk-data" class="text-xs bg-slate-700 px-2 py-1 rounded">1GB Dados</div>
+                        </div>
+
+                        <!-- CPU -->
+                        <div class="flex flex-col items-center gap-2 transform -translate-y-16">
+                            <div id="cpu-node" class="w-20 h-20 bg-slate-800 border-2 border-slate-500 rounded-lg flex items-center justify-center shadow-lg transition-colors duration-300">
+                                <i id="cpu-icon" class="fa-solid fa-microchip text-4xl text-slate-300"></i>
+                            </div>
+                            <span class="font-semibold text-slate-300">CPU</span>
+                            <div id="cpu-usage" class="text-xs bg-emerald-900/50 text-emerald-400 px-2 py-1 rounded font-mono border border-emerald-500/30">Uso: 2%</div>
+                        </div>
+
+                        <!-- RAM -->
+                        <div class="flex flex-col items-center gap-2">
+                            <div class="w-20 h-20 bg-slate-800 border-2 border-slate-500 rounded-lg flex items-center justify-center shadow-lg">
+                                <i class="fa-solid fa-memory text-4xl text-slate-300"></i>
+                            </div>
+                            <span class="font-semibold text-slate-300">Memória RAM</span>
+                            <div id="ram-data" class="text-xs bg-slate-700 px-2 py-1 rounded">0GB Recebido</div>
+                        </div>
+                    </div>
+
+                    <!-- SVG Paths para animação -->
+                    <svg class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 0;">
+                        <!-- Path Disco -> CPU -->
+                        <path id="path-disk-cpu" d="" fill="none" stroke="#475569" stroke-width="4" stroke-dasharray="10 5" class="opacity-30"/>
+                        <!-- Path CPU -> RAM -->
+                        <path id="path-cpu-ram" d="" fill="none" stroke="#475569" stroke-width="4" stroke-dasharray="10 5" class="opacity-30"/>
+                        <!-- Path Disco -> RAM (DMA) -->
+                        <path id="path-disk-ram" d="" fill="none" stroke="#475569" stroke-width="4" stroke-dasharray="10 5" class="opacity-30"/>
+                        
+                        <!-- Partículas Animadas -->
+                        <circle id="particle-cpu1" r="6" fill="#e11d48" class="hidden" />
+                        <circle id="particle-cpu2" r="6" fill="#e11d48" class="hidden" />
+                        <circle id="particle-dma" r="8" fill="#10b981" class="hidden" />
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Lição -->
+            <div class="bg-blue-900/20 border-l-4 border-blue-500 p-6 rounded-r-xl">
+                <h4 class="text-blue-400 font-bold text-lg mb-2"><i class="fa-solid fa-lightbulb"></i> A Lição</h4>
+                <p class="text-slate-300">
+                    O DMA é essencial para a <strong>performance e eficiência energética</strong> de sistemas modernos. Sem ele, sua CPU ficaria estrangulada (100% de uso) copiando bytes sempre que você abrisse um arquivo pesado ou jogasse algo, deixando o sistema inteiro lento.
+                </p>
+            </div>
+        </section>
+
+        <!-- EXPERIMENTO 2: CAÇA-TESOURO -->
+        <section id="view-exp2" class="view-section hidden fade-in max-w-5xl mx-auto">
+            <div class="mb-8">
+                <h2 class="text-3xl font-bold flex items-center gap-3">
+                    <i class="fa-solid fa-magnifying-glass-chart text-amber-400"></i> O "Caça-Tesouro" na Memória
+                </h2>
+                <p class="text-slate-400 mt-2">Uma simulação de ataque DMA. Você é um dispositivo Thunderbolt malicioso conectado ao PC.</p>
+            </div>
+
+            <div class="flex flex-col lg:flex-row gap-8">
+                <!-- Info Panel -->
+                <div class="lg:w-1/3 bg-slate-800 p-6 rounded-xl border border-slate-700">
+                    <div class="flex items-center gap-4 mb-6 border-b border-slate-700 pb-4">
+                        <i class="fa-brands fa-usb text-4xl text-rose-500"></i>
+                        <div>
+                            <h3 class="font-bold text-lg">Dispositivo Conectado</h3>
+                            <p class="text-xs text-rose-400 font-mono">Status: Acesso Físico Concedido (DMA Ativo)</p>
+                        </div>
+                    </div>
+                    <p class="text-sm text-slate-300 mb-4">
+                        Como o sistema confia no seu dispositivo (já que é hardware), você pode solicitar a leitura de qualquer endereço físico da Memória RAM (Ataque DMA Clássico).
+                    </p>
+                    <p class="text-sm text-slate-300 mb-6 font-semibold">
+                        Sua Missão: Clique nos blocos de memória para varrer a RAM e encontrar chaves criptográficas ou senhas.
+                    </p>
+                    
+                    <div class="bg-slate-900 rounded p-4 font-mono text-xs h-32 overflow-y-auto border border-slate-700" id="hacker-terminal">
+                        <div class="text-slate-500">> Inicializando ponteiro DMA...</div>
+                        <div class="text-green-500">> Acesso à RAM garantido.</div>
+                        <div class="text-slate-500">> Aguardando varredura manual...</div>
+                    </div>
+                </div>
+
+                <!-- Memory Grid -->
+                <div class="lg:w-2/3 bg-slate-900 p-6 rounded-xl border border-slate-700 flex justify-center items-center">
+                    <div id="memory-grid" class="grid grid-cols-4 sm:grid-cols-5 gap-2 w-full max-w-md mx-auto">
+                        <!-- Células geradas via JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lição -->
+            <div class="bg-rose-900/20 border-l-4 border-rose-500 p-6 rounded-r-xl mt-8">
+                <h4 class="text-rose-400 font-bold text-lg mb-2"><i class="fa-solid fa-skull-crossbones"></i> A Lição (O Ataque)</h4>
+                <p class="text-slate-300">
+                    A "liberdade" de acesso total à RAM significa que o Sistema Operacional e os Antivírus <strong>não percebem o ataque</strong>. O hardware (placa-mãe) apenas atende ao pedido elétrico de leitura feito pelo barramento PCIe/Thunderbolt. Senhas de administrador, chaves do BitLocker e dados sensíveis ficam expostos na memória física.
+                </p>
+            </div>
+        </section>
+
+        <!-- EXPERIMENTO 3: PORTEIRO IOMMU -->
+        <section id="view-exp3" class="view-section hidden fade-in max-w-5xl mx-auto">
+             <div class="mb-8">
+                <h2 class="text-3xl font-bold flex items-center gap-3">
+                    <i class="fa-solid fa-shield-halved text-emerald-400"></i> O Porteiro IOMMU (A Defesa)
+                </h2>
+                <p class="text-slate-400 mt-2">Como o hardware moderno se defende: Input-Output Memory Management Unit.</p>
+            </div>
+
+            <p class="mb-6 text-slate-300">
+                Você é o controlador do IOMMU. Sua função é traduzir e restringir quais partes da RAM cada dispositivo PCIe pode acessar. Atribua as permissões corretas (arraste as "Fichas" para os dispositivos) para evitar que o PC seja invadido por periféricos não confiáveis, mas mantenha a Placa de Vídeo rápida!
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-6 mb-8">
+                
+                <!-- Fichas de Permissão (Draggables) -->
+                <div class="md:col-span-3 bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-col gap-4">
+                    <h3 class="font-bold text-center border-b border-slate-700 pb-2">Políticas</h3>
+                    
+                    <div id="policy-full" class="draggable p-3 bg-rose-900/40 border-2 border-rose-500 rounded-lg text-center cursor-grab active:cursor-grabbing hover:bg-rose-800/60 transition" draggable="true" data-policy="full">
+                        <i class="fa-solid fa-unlock text-rose-400 mb-1"></i>
+                        <p class="font-bold text-rose-200 text-sm">Acesso Total</p>
+                        <p class="text-[10px] text-rose-300/70">Mapeia toda a RAM (0x0 - 0xFFFF)</p>
+                    </div>
+
+                    <div id="policy-restrict" class="draggable p-3 bg-emerald-900/40 border-2 border-emerald-500 rounded-lg text-center cursor-grab active:cursor-grabbing hover:bg-emerald-800/60 transition" draggable="true" data-policy="restrict">
+                        <i class="fa-solid fa-lock text-emerald-400 mb-1"></i>
+                        <p class="font-bold text-emerald-200 text-sm">Acesso Restrito</p>
+                        <p class="text-[10px] text-emerald-300/70">Apenas Buffer Alocado (Sandboxing)</p>
+                    </div>
+                </div>
+
+                <!-- Dispositivos (Dropzones) -->
+                <div class="md:col-span-9 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    
+                    <!-- GPU -->
+                    <div class="bg-slate-900 p-4 rounded-xl border border-slate-600 flex flex-col items-center relative overflow-hidden">
+                        <i class="fa-solid fa-vr-cardboard text-3xl mb-2 text-blue-400"></i>
+                        <h4 class="font-bold">Placa de Vídeo</h4>
+                        <p class="text-xs text-slate-400 text-center mb-4 h-8">Dispositivo Confiável Interno (Precisa de muita banda)</p>
+                        <div class="dropzone w-full h-24 border-2 border-dashed border-slate-600 rounded-lg flex items-center justify-center bg-slate-800/50" id="drop-gpu" data-device="gpu">
+                            <span class="text-xs text-slate-500">Solte a Política Aqui</span>
+                        </div>
+                    </div>
+
+                    <!-- Placa de Rede -->
+                    <div class="bg-slate-900 p-4 rounded-xl border border-slate-600 flex flex-col items-center">
+                        <i class="fa-solid fa-network-wired text-3xl mb-2 text-purple-400"></i>
+                        <h4 class="font-bold">Placa de Rede</h4>
+                        <p class="text-xs text-slate-400 text-center mb-4 h-8">Dispositivo de I/O Comum</p>
+                        <div class="dropzone w-full h-24 border-2 border-dashed border-slate-600 rounded-lg flex items-center justify-center bg-slate-800/50" id="drop-net" data-device="net">
+                            <span class="text-xs text-slate-500">Solte a Política Aqui</span>
+                        </div>
+                    </div>
+
+                    <!-- Pendrive -->
+                    <div class="bg-slate-900 p-4 rounded-xl border-2 border-rose-500/50 flex flex-col items-center shadow-[0_0_15px_rgba(225,29,72,0.1)]">
+                        <i class="fa-brands fa-usb text-3xl mb-2 text-rose-500 animate-pulse"></i>
+                        <h4 class="font-bold text-rose-300">Cabo Thunderbolt</h4>
+                        <p class="text-xs text-rose-400/80 text-center mb-4 h-8">Dispositivo Externo Desconhecido (Hot-plug)</p>
+                        <div class="dropzone w-full h-24 border-2 border-dashed border-slate-600 rounded-lg flex items-center justify-center bg-slate-800/50" id="drop-usb" data-device="usb">
+                            <span class="text-xs text-slate-500">Solte a Política Aqui</span>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="flex justify-center mb-8">
+                <button onclick="testIOMMU()" class="py-3 px-8 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold shadow-lg transition-transform transform hover:scale-105 active:scale-95">
+                    <i class="fa-solid fa-power-off mr-2"></i> Iniciar Sistema Operacional
+                </button>
+            </div>
+
+            <!-- Lição -->
+            <div class="bg-emerald-900/20 border-l-4 border-emerald-500 p-6 rounded-r-xl">
+                <h4 class="text-emerald-400 font-bold text-lg mb-2"><i class="fa-solid fa-check-double"></i> A Lição (A Defesa)</h4>
+                <p class="text-slate-300">
+                    O <strong>IOMMU (VT-d na Intel, AMD-Vi na AMD)</strong> funciona como um MMU para periféricos. Ele cria tabelas de página que interceptam pedidos de DMA. Se um dispositivo tenta ler um endereço para o qual não tem mapeamento válido, o hardware corta o acesso e dispara uma falha no sistema. Isso impede que portas externas (Thunderbolt/Firewire) roubem dados, exigindo que o SO autorize a memória explicitamente (Sandboxing).
+                </p>
+            </div>
+        </section>
+
+        <!-- EXPERIMENTO 4: EVIL MAID -->
+        <section id="view-exp4" class="view-section hidden fade-in max-w-5xl mx-auto">
+            <div class="mb-8">
+                <h2 class="text-3xl font-bold flex items-center gap-3">
+                    <i class="fa-solid fa-user-secret text-purple-400"></i> O Simulador de "Evil Maid"
+                </h2>
+                <p class="text-slate-400 mt-2">Cenário: Você deixou seu notebook bloqueado (Win+L) no quarto do hotel e desceu para jantar. A camareira maliciosa entra.</p>
+            </div>
+
+            <div class="relative max-w-3xl mx-auto py-8">
+                <!-- Timeline Vertical Line -->
+                <div class="absolute left-6 md:left-1/2 top-0 bottom-0 w-1 bg-slate-700 transform md:-translate-x-1/2"></div>
+
+                <!-- Steps -->
+                <div id="timeline-container" class="space-y-12">
+                    
+                    <!-- Passo 1 -->
+                    <div class="timeline-step relative flex flex-col md:flex-row items-center cursor-pointer group" onclick="advanceEvilMaid(1)">
+                        <div class="md:w-1/2 md:pr-12 text-left md:text-right mb-4 md:mb-0 w-full pl-16 md:pl-0">
+                            <h3 class="text-xl font-bold text-slate-300 group-hover:text-white transition">1. A Conexão</h3>
+                            <p class="text-slate-500 text-sm mt-1 desc hidden">A atacante conecta um dispositivo customizado (como um PCIe Screamer ou placa via Thunderbolt) na porta lateral do seu notebook ligado.</p>
+                        </div>
+                        <div class="absolute left-0 md:left-1/2 w-12 h-12 bg-slate-800 border-4 border-slate-600 rounded-full flex items-center justify-center transform md:-translate-x-1/2 z-10 transition-colors duration-300 step-icon">
+                            <i class="fa-brands fa-usb text-slate-400"></i>
+                        </div>
+                        <div class="md:w-1/2 md:pl-12 w-full"></div>
+                    </div>
+
+                    <!-- Passo 2 -->
+                    <div class="timeline-step relative flex flex-col md:flex-row items-center opacity-50 pointer-events-none group" id="step-2" onclick="advanceEvilMaid(2)">
+                        <div class="md:w-1/2 w-full"></div>
+                        <div class="absolute left-0 md:left-1/2 w-12 h-12 bg-slate-800 border-4 border-slate-600 rounded-full flex items-center justify-center transform md:-translate-x-1/2 z-10 transition-colors duration-300 step-icon">
+                            <i class="fa-solid fa-code text-slate-400"></i>
+                        </div>
+                        <div class="md:w-1/2 md:pl-12 text-left mb-4 md:mb-0 w-full pl-16 md:pl-12">
+                            <h3 class="text-xl font-bold text-slate-300 group-hover:text-white transition">2. Disparo do Script</h3>
+                            <p class="text-slate-500 text-sm mt-1 desc hidden">O hardware malicioso se passa por uma placa de rede confiável e emite pedidos de TLP (Transaction Layer Packet) pela rede PCIe para ler a RAM.</p>
+                        </div>
+                    </div>
+
+                    <!-- Passo 3 -->
+                    <div class="timeline-step relative flex flex-col md:flex-row items-center opacity-50 pointer-events-none group" id="step-3" onclick="advanceEvilMaid(3)">
+                        <div class="md:w-1/2 md:pr-12 text-left md:text-right mb-4 md:mb-0 w-full pl-16 md:pl-0">
+                            <h3 class="text-xl font-bold text-slate-300 group-hover:text-white transition">3. Localizar 'lsass.exe'</h3>
+                            <p class="text-slate-500 text-sm mt-1 desc hidden">O script varre a memória em busca da assinatura do processo do Windows responsável pelo gerenciamento de credenciais na RAM.</p>
+                        </div>
+                        <div class="absolute left-0 md:left-1/2 w-12 h-12 bg-slate-800 border-4 border-slate-600 rounded-full flex items-center justify-center transform md:-translate-x-1/2 z-10 transition-colors duration-300 step-icon">
+                            <i class="fa-solid fa-magnifying-glass text-slate-400"></i>
+                        </div>
+                        <div class="md:w-1/2 w-full"></div>
+                    </div>
+
+                    <!-- Passo 4 -->
+                    <div class="timeline-step relative flex flex-col md:flex-row items-center opacity-50 pointer-events-none group" id="step-4" onclick="advanceEvilMaid(4)">
+                        <div class="md:w-1/2 w-full"></div>
+                        <div class="absolute left-0 md:left-1/2 w-12 h-12 bg-slate-800 border-4 border-slate-600 rounded-full flex items-center justify-center transform md:-translate-x-1/2 z-10 transition-colors duration-300 step-icon">
+                            <i class="fa-solid fa-key text-slate-400"></i>
+                        </div>
+                        <div class="md:w-1/2 md:pl-12 text-left mb-4 md:mb-0 w-full pl-16 md:pl-12">
+                            <h3 class="text-xl font-bold text-slate-300 group-hover:text-white transition">4. Extrair Hash</h3>
+                            <p class="text-slate-500 text-sm mt-1 desc hidden">O hash da sua senha é extraído via DMA para o pendrive em menos de 10 segundos. O invasor desconecta e vai embora. A tela de bloqueio nunca mudou.</p>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div id="evil-maid-result" class="mt-12 text-center hidden fade-in">
+                    <p class="text-2xl font-bold text-rose-500 mb-2">Notebook Comprometido!</p>
+                    <button onclick="resetEvilMaid()" class="text-slate-400 hover:text-white text-sm underline"><i class="fa-solid fa-rotate-left"></i> Tentar de novo</button>
+                </div>
+            </div>
+
+            <!-- Lição -->
+            <div class="bg-purple-900/20 border-l-4 border-purple-500 p-6 rounded-r-xl mt-8">
+                <h4 class="text-purple-400 font-bold text-lg mb-2"><i class="fa-solid fa-book-skull"></i> A Lição (Segurança Física)</h4>
+                <p class="text-slate-300">
+                    O bloqueio de tela via software (Windows Lock) protege contra o uso do teclado e mouse. Ele <strong>não protege contra ataques de barramento em nível de hardware</strong>. Para evitar "Evil Maid Attacks" via DMA, os sistemas operacionais modernos adotam o "Kernel DMA Protection", utilizando o IOMMU para bloquear periféricos externos enquanto a tela estiver bloqueada.
+                </p>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        // --- NAVEGAÇÃO GLOBAL ---
+        function navigate(viewId) {
+            // Esconde todas
+            document.querySelectorAll('.view-section').forEach(el => {
+                el.classList.add('hidden');
+                el.classList.remove('fade-in');
+            });
+            // Reset styles dos botões
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('bg-blue-600/20', 'text-blue-400', 'border', 'border-blue-500/30');
+                btn.classList.add('hover:bg-slate-800', 'text-slate-300');
+            });
+
+            // Mostra a selecionada
+            const target = document.getElementById('view-' + viewId);
+            if(target) {
+                target.classList.remove('hidden');
+                // trigger reflow para animação
+                void target.offsetWidth;
+                target.classList.add('fade-in');
+            }
+
+            // Ativa botão
+            const btn = document.getElementById('nav-' + viewId);
+            if(btn) {
+                btn.classList.remove('hover:bg-slate-800', 'text-slate-300');
+                btn.classList.add('bg-blue-600/20', 'text-blue-400', 'border', 'border-blue-500/30');
+            }
+
+            // Configura visual dos SVG no Exp1 se for a aba
+            if(viewId === 'exp1') {
+                setupExp1SVG();
+            }
+        }
+
+        // --- SISTEMA DE MODAL ALERTA ---
+        function showAlert(title, message, type) {
+            const modal = document.getElementById('alert-modal');
+            const icon = document.getElementById('alert-icon');
+            const titleEl = document.getElementById('alert-title');
+            const msgEl = document.getElementById('alert-message');
+
+            titleEl.innerText = title;
+            msgEl.innerHTML = message;
+
+            if(type === 'error') {
+                icon.innerHTML = '<i class="fa-solid fa-circle-xmark text-rose-500"></i>';
+                titleEl.className = 'text-2xl font-bold mb-2 text-rose-500';
+            } else if (type === 'success') {
+                icon.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-500"></i>';
+                titleEl.className = 'text-2xl font-bold mb-2 text-emerald-500';
+            } else {
+                icon.innerHTML = '<i class="fa-solid fa-triangle-exclamation text-amber-500"></i>';
+                titleEl.className = 'text-2xl font-bold mb-2 text-amber-500';
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeAlert() {
+            document.getElementById('alert-modal').classList.add('hidden');
+        }
+
+        // --- EXPERIMENTO 1: CPU vs DMA ---
+        let cpuInterval;
+        let isTransferring = false;
+
+        function setupExp1SVG() {
+            // Atualiza os caminhos das linhas baseados na posição das caixas
+            // Como é um design responsivo fixo, usamos caminhos aproximados usando coordenadas percentuais ou viewBox se fossemos criar SVG do zero.
+            // Aqui optamos por desenhar estaticamente ou usando JS básico para as coordenadas.
+            // Para manter a estabilidade no resize, usamos CSS keyframes com classes simplificadas ou calculamos aqui.
+            // Por simplicidade, vamos pular o cálculo dinâmico de SVG e apenas animar opacidades e uma simulação de transferência.
+        }
+
+        document.getElementById('btn-cpu').addEventListener('click', () => {
+            if(isTransferring) return;
+            startTransfer('cpu');
+        });
+
+        document.getElementById('btn-dma').addEventListener('click', () => {
+            if(isTransferring) return;
+            startTransfer('dma');
+        });
+
+        document.getElementById('btn-reset1').addEventListener('click', () => {
+            resetExp1();
+        });
+
+        function startTransfer(type) {
+            isTransferring = true;
+            document.getElementById('disk-data').innerText = "Lendo...";
+            
+            if(type === 'cpu') {
+                // Ativar Lag
+                document.body.classList.add('simulated-lag');
+                
+                // Visual CPU ocupada
+                const cpuNode = document.getElementById('cpu-node');
+                const cpuIcon = document.getElementById('cpu-icon');
+                const cpuUsage = document.getElementById('cpu-usage');
+                
+                cpuNode.classList.remove('bg-slate-800', 'border-slate-500');
+                cpuNode.classList.add('bg-rose-900', 'border-rose-500', 'shadow-[0_0_20px_rgba(225,29,72,0.8)]');
+                cpuIcon.classList.remove('text-slate-300');
+                cpuIcon.classList.add('text-rose-400', 'fa-spin');
+                
+                cpuUsage.className = 'text-xs bg-rose-900/50 text-rose-400 px-2 py-1 rounded font-mono border border-rose-500/30';
+                
+                // Incrementar CPU
+                let val = 2;
+                cpuInterval = setInterval(() => {
+                    val += Math.floor(Math.random() * 20);
+                    if(val >= 100) val = 100;
+                    cpuUsage.innerText = `Uso: ${val}%`;
+                }, 100);
+
+                // Animação das linhas seria aqui. Vamos simular com Timeout.
+                setTimeout(() => finishTransfer(type), 4000); // 4s por CPU (Lento)
+
+            } else {
+                // DMA: Rápido e CPU livre
+                const cpuUsage = document.getElementById('cpu-usage');
+                cpuUsage.innerText = `Uso: 3%`; // continua baixo
+                
+                // Animação visual rápida
+                setTimeout(() => finishTransfer(type), 1000); // 1s por DMA (Rápido)
+            }
+        }
+
+        function finishTransfer(type) {
+            isTransferring = false;
+            clearInterval(cpuInterval);
+            
+            document.getElementById('disk-data').innerText = "0GB";
+            document.getElementById('ram-data').innerText = "1GB Recebido";
+            document.getElementById('ram-data').classList.add('bg-emerald-600', 'text-white');
+
+            if(type === 'cpu') {
+                document.body.classList.remove('simulated-lag');
+                
+                const cpuNode = document.getElementById('cpu-node');
+                const cpuIcon = document.getElementById('cpu-icon');
+                const cpuUsage = document.getElementById('cpu-usage');
+                
+                cpuNode.classList.remove('bg-rose-900', 'border-rose-500', 'shadow-[0_0_20px_rgba(225,29,72,0.8)]');
+                cpuNode.classList.add('bg-slate-800', 'border-slate-500');
+                cpuIcon.classList.remove('text-rose-400', 'fa-spin');
+                cpuIcon.classList.add('text-slate-300');
+                
+                cpuUsage.className = 'text-xs bg-emerald-900/50 text-emerald-400 px-2 py-1 rounded font-mono border border-emerald-500/30';
+                cpuUsage.innerText = `Uso: 2%`;
+            }
+        }
+
+        function resetExp1() {
+            isTransferring = false;
+            clearInterval(cpuInterval);
+            document.body.classList.remove('simulated-lag');
+            
+            document.getElementById('disk-data').innerText = "1GB Dados";
+            
+            const ramData = document.getElementById('ram-data');
+            ramData.innerText = "0GB Recebido";
+            ramData.classList.remove('bg-emerald-600', 'text-white');
+            ramData.classList.add('bg-slate-700');
+
+            const cpuNode = document.getElementById('cpu-node');
+            const cpuIcon = document.getElementById('cpu-icon');
+            const cpuUsage = document.getElementById('cpu-usage');
+            
+            cpuNode.classList.remove('bg-rose-900', 'border-rose-500', 'shadow-[0_0_20px_rgba(225,29,72,0.8)]');
+            cpuNode.classList.add('bg-slate-800', 'border-slate-500');
+            cpuIcon.classList.remove('text-rose-400', 'fa-spin');
+            cpuIcon.classList.add('text-slate-300');
+            
+            cpuUsage.className = 'text-xs bg-emerald-900/50 text-emerald-400 px-2 py-1 rounded font-mono border border-emerald-500/30';
+            cpuUsage.innerText = `Uso: 2%`;
+        }
+
+
+        // --- EXPERIMENTO 2: CAÇA-TESOURO NA MEMÓRIA ---
+        const totalCells = 20;
+        let memoryContents = [];
+        let secretsFound = 0;
+
+        function initMemoryGrid() {
+            const grid = document.getElementById('memory-grid');
+            grid.innerHTML = '';
+            memoryContents = Array(totalCells).fill({ type: 'junk', content: '0x00 LIXO' });
+            
+            // Inserir segredos aleatórios
+            const secretIndexes = [];
+            while(secretIndexes.length < 2) {
+                let r = Math.floor(Math.random() * totalCells);
+                if(secretIndexes.indexOf(r) === -1) secretIndexes.push(r);
+            }
+            
+            memoryContents[secretIndexes[0]] = { type: 'secret', content: 'Chave BitLocker: [X72...]', color: 'text-amber-400' };
+            memoryContents[secretIndexes[1]] = { type: 'secret', content: 'Senha: admin123', color: 'text-emerald-400' };
+
+            for(let i=0; i<totalCells; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'memory-cell bg-slate-800 border-2 border-slate-700 h-16 rounded cursor-pointer flex items-center justify-center font-mono text-xs overflow-hidden p-1 text-center shadow-md';
+                cell.innerText = `0x${(i * 1024).toString(16).toUpperCase()}`;
+                
+                cell.addEventListener('click', function() {
+                    revealCell(cell, i);
+                });
+                grid.appendChild(cell);
+            }
+        }
+
+        function revealCell(cell, index) {
+            if(cell.classList.contains('cell-revealed')) return;
+            
+            const data = memoryContents[index];
+            cell.classList.add('cell-revealed');
+            
+            const term = document.getElementById('hacker-terminal');
+            
+            if(data.type === 'secret') {
+                cell.innerHTML = `<span class="font-bold ${data.color}">${data.content}</span>`;
+                cell.classList.add('border-rose-500', 'bg-rose-900/30');
+                
+                term.innerHTML += `<div class="text-rose-400">> DUMP REALIZADO: ${data.content} !!</div>`;
+                term.scrollTop = term.scrollHeight;
+                
+                secretsFound++;
+                if(secretsFound === 2) {
+                    setTimeout(() => {
+                        showAlert("Ataque Bem Sucedido!", "Você acessou os endereços físicos onde o SO armazenava as senhas. <br><br>Como o Controlador DMA permitiu a leitura diretamente do chip de RAM, as chaves foram roubadas sem deixar rastros nos logs do Windows/Linux.", "error");
+                    }, 500);
+                }
+            } else {
+                cell.innerHTML = `<span class="text-slate-500">${data.content}</span>`;
+                term.innerHTML += `<div class="text-slate-600">> Leitura 0x${(index*1024).toString(16).toUpperCase()}: Lixo/Zeros</div>`;
+                term.scrollTop = term.scrollHeight;
+            }
+        }
+        
+        // Inicializa grid ao carregar script
+        initMemoryGrid();
+
+
+        // --- EXPERIMENTO 3: PORTEIRO IOMMU ---
+        let draggedPolicy = null;
+        const devicePolicies = {
+            gpu: null,
+            net: null,
+            usb: null
+        };
+
+        const draggables = document.querySelectorAll('.draggable');
+        const dropzones = document.querySelectorAll('.dropzone');
+
+        draggables.forEach(draggable => {
+            draggable.addEventListener('dragstart', (e) => {
+                draggedPolicy = draggable;
+                e.dataTransfer.setData('text/plain', draggable.dataset.policy);
+                // efeito visual de opacidade
+                setTimeout(() => draggable.classList.add('opacity-50'), 0);
+            });
+
+            draggable.addEventListener('dragend', () => {
+                draggable.classList.remove('opacity-50');
+                draggedPolicy = null;
+            });
+        });
+
+        dropzones.forEach(zone => {
+            zone.addEventListener('dragover', (e) => {
+                e.preventDefault(); // Necessário para permitir o drop
+                zone.classList.add('drag-over');
+            });
+
+            zone.addEventListener('dragleave', () => {
+                zone.classList.remove('drag-over');
+            });
+
+            zone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                zone.classList.remove('drag-over');
+                
+                const policyType = e.dataTransfer.getData('text/plain');
+                const device = zone.dataset.device;
+                
+                devicePolicies[device] = policyType;
+                
+                // Atualizar UI da Dropzone
+                zone.innerHTML = ''; // limpa
+                const clone = draggedPolicy.cloneNode(true);
+                clone.classList.remove('draggable', 'cursor-grab', 'active:cursor-grabbing'); // remove classes de drag
+                clone.removeAttribute('draggable');
+                clone.className += " w-full h-full flex flex-col items-center justify-center m-0 border-0";
+                zone.appendChild(clone);
+            });
+        });
+
+        function testIOMMU() {
+            // Verifica se todos tem política
+            if(!devicePolicies.gpu || !devicePolicies.net || !devicePolicies.usb) {
+                showAlert("Configuração Incompleta", "Por favor, atribua uma política (Total ou Restrita) para todos os dispositivos antes de iniciar.", "warning");
+                return;
+            }
+
+            // Lógica de Sucesso/Falha
+            // Regra: Pendrive com Acesso Total = HACKED.
+            // GPU precisa de Total (opcional, mas comum para performance, se Restrito funciona mas é mais lento). Para o jogo, focamos no USB.
+            
+            if(devicePolicies.usb === 'full') {
+                showAlert("SISTEMA HACKEADO!", "Você deu <b>Acesso Total</b> ao cabo Thunderbolt (Dispositivo Desconhecido). <br><br>Um dispositivo malicioso disfarçado de cabo leu os endereços de Kernel na memória e extraiu suas senhas instantaneamente.", "error");
+            } else if (devicePolicies.usb === 'restrict') {
+                showAlert("Sistema Seguro!", "Excelente! O <b>IOMMU</b> isolou o dispositivo Thunderbolt em um buffer restrito na RAM (Sandboxing). <br><br>Quando o dispositivo tentou ler a área do Kernel (onde ficam as senhas), o IOMMU bloqueou a transação de hardware e gerou uma exceção, salvando o sistema.", "success");
+            }
+        }
+
+
+        // --- EXPERIMENTO 4: EVIL MAID ---
+        let currentStep = 1;
+
+        function advanceEvilMaid(stepId) {
+            if(stepId !== currentStep) return; // Força sequencialidade
+            
+            const stepEl = document.querySelectorAll('.timeline-step')[stepId - 1];
+            
+            // UI Ativação do Step
+            stepEl.classList.remove('opacity-50', 'pointer-events-none');
+            const iconEl = stepEl.querySelector('.step-icon');
+            const descEl = stepEl.querySelector('.desc');
+            const titleEl = stepEl.querySelector('h3');
+            
+            iconEl.classList.remove('bg-slate-800', 'border-slate-600');
+            iconEl.classList.add('bg-purple-900', 'border-purple-500', 'shadow-[0_0_15px_rgba(168,85,247,0.5)]');
+            iconEl.querySelector('i').classList.remove('text-slate-400');
+            iconEl.querySelector('i').classList.add('text-purple-300');
+            
+            titleEl.classList.add('text-purple-400');
+            descEl.classList.remove('hidden');
+            descEl.classList.add('fade-in');
+
+            // Prepara o próximo step
+            currentStep++;
+            if(currentStep <= 4) {
+                const nextStep = document.getElementById('step-' + currentStep);
+                nextStep.classList.remove('opacity-50', 'pointer-events-none');
+                // Adiciona um pulso sutil para indicar onde clicar
+                nextStep.querySelector('.step-icon').classList.add('animate-pulse');
+            } else {
+                // Final
+                document.getElementById('evil-maid-result').classList.remove('hidden');
+            }
+
+            // Remove o pulse do recém-clicado
+            iconEl.classList.remove('animate-pulse');
+        }
+
+        function resetEvilMaid() {
+            currentStep = 1;
+            document.getElementById('evil-maid-result').classList.add('hidden');
+            
+            const steps = document.querySelectorAll('.timeline-step');
+            steps.forEach((step, index) => {
+                const iconEl = step.querySelector('.step-icon');
+                const descEl = step.querySelector('.desc');
+                const titleEl = step.querySelector('h3');
+
+                iconEl.className = 'absolute left-0 md:left-1/2 w-12 h-12 bg-slate-800 border-4 border-slate-600 rounded-full flex items-center justify-center transform md:-translate-x-1/2 z-10 transition-colors duration-300 step-icon';
+                iconEl.querySelector('i').className = iconEl.querySelector('i').className.replace('text-purple-300', 'text-slate-400');
+                
+                titleEl.classList.remove('text-purple-400');
+                descEl.classList.add('hidden');
+                descEl.classList.remove('fade-in');
+
+                if(index > 0) {
+                    step.classList.add('opacity-50', 'pointer-events-none');
+                } else {
+                    step.classList.remove('opacity-50', 'pointer-events-none');
+                }
+            });
+        }
+
+        // Initialize at start
+        navigate('intro');
+
+    </script>
+</body>
+</html>
