@@ -6,8 +6,8 @@
 #include <stdio.h>
 
 int main() {
-    int tam, soma, menorMedia; 
-    float med;
+    int tam, menorMedia; 
+    float soma, med;
 
     printf("Quantos individuos tem no grupo?\n");
     scanf("%d", &tam);
