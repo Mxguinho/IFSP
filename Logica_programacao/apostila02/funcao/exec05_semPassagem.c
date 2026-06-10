@@ -3,14 +3,8 @@
 
 #include <stdio.h>
 
-int totalDias;
-
 void printDias() {
-    printf("A idade total em dias é: %d\n", totalDias);
-}
-
-int main() {
-    int anos, meses, dias;
+    int anos, meses, dias, totalDias;
 
     printf("Digite a idade em anos: ");
     scanf("%d", &anos);
@@ -23,7 +17,10 @@ int main() {
 
     totalDias = (anos * 365) + (meses * 30) + dias;
 
-    printDias();
+    printf("A idade total em dias é: %d\n", totalDias);
+}
 
+int main() {
+    printDias();
     return 0;
 }
