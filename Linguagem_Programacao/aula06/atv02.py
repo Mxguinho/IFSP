@@ -9,7 +9,7 @@ for i in range(len(lista)):
 print('lista:',lista)
 
 print('tamanho:', len(lista))
-
+''
 print('media:', soma / len(lista))
 print('elementos | potencia')
 for i in range(len(lista)):
