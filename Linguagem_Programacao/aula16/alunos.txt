@@ -1,0 +1,7 @@
+Lista de alunos Reprovados:
+Aluno(a): laise
+Aluno(a): heitor
+Aluno(a): vasco
+Aluno(a): Carlos
+Aluno(a): fabricia
+laiseheitorvascoCarlosfabricia
